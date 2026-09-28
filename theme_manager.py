@@ -1,64 +1,131 @@
 import streamlit as st
-from theme_manager import THEMES, apply_current_theme
 
-st.set_page_config(page_title="Settings", page_icon="⚙️", layout="wide")
+THEMES = {
+    "Cyberpunk Neon": {
+        "primary": "#ff007f",
+        "accent": "#00f0ff",
+        "bg": "#0a0a12",
+        "secondary_bg": "#161626",
+        "text": "#f8f9fa",
+        "border": "#ff007f"
+    },
+    "Terminal Amber": {
+        "primary": "#f59e0b",
+        "accent": "#fbbf24",
+        "bg": "#0d0c00",
+        "secondary_bg": "#1c1905",
+        "text": "#fef08a",
+        "border": "#b45309"
+    },
+    "Nordic Glacier": {
+        "primary": "#0284c7",
+        "accent": "#38bdf8",
+        "bg": "#f0f9ff",
+        "secondary_bg": "#ffffff",
+        "text": "#0c4a6e",
+        "border": "#bae6fd"
+    },
+    "Royal Amethyst": {
+        "primary": "#a855f7",
+        "accent": "#c084fc",
+        "bg": "#13091f",
+        "secondary_bg": "#231538",
+        "text": "#faf5ff",
+        "border": "#6b21a8"
+    }
+}
 
-apply_current_theme()
+def apply_current_theme():
+    """Injects high-contrast CSS based on the chosen theme in session_state."""
+    if "current_theme" not in st.session_state:
+        st.session_state.current_theme = "Cyberpunk Neon"
 
-st.title("⚙️ System Settings")
-st.caption("Customize appearance, UI preferences, and system parameters.")
+    if st.session_state.current_theme not in THEMES:
+        st.session_state.current_theme = "Cyberpunk Neon"
 
-st.markdown("### 🎨 Visual Theme")
+    t = THEMES[st.session_state.current_theme]
 
-theme_names = list(THEMES.keys())
-current_idx = theme_names.index(st.session_state.current_theme)
+    css = f"""
+    <style>
+    .stApp {{
+        background-color: {t["bg"]} !important;
+        color: {t["text"]} !important;
+    }}
+    
+    section[data-testid="stSidebar"] {{
+        background-color: {t["secondary_bg"]} !important;
+        border-right: 2px solid {t["border"]} !important;
+    }}
+    
+    h1, h2, h3, h4, h5, h6, p, label, span, .stMarkdown {{
+        color: {t["text"]} !important;
+    }}
 
-selected_theme = st.selectbox(
-    "Choose Theme Palette",
-    options=theme_names,
-    index=current_idx,
-    help="Select a color palette. The UI updates instantly."
-)
+    div[data-testid="stMetric"] {{
+        background-color: {t["secondary_bg"]} !important;
+        border: 1px solid {t["border"]} !important;
+        border-radius: 10px;
+        padding: 12px 16px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }}
+    div[data-testid="stMetricValue"] > div {{
+        color: {t["primary"]} !important;
+        font-weight: 700;
+    }}
+    div[data-testid="stMetricLabel"] p {{
+        color: {t["text"]} !important;
+        opacity: 0.85;
+    }}
 
-if selected_theme != st.session_state.current_theme:
-    st.session_state.current_theme = selected_theme
-    apply_current_theme()
-    st.rerun()
+    .stButton > button {{
+        background-color: {t["secondary_bg"]} !important;
+        color: {t["text"]} !important;
+        border: 1.5px solid {t["primary"]} !important;
+        border-radius: 8px;
+        font-weight: 600;
+        transition: all 0.25s ease-in-out;
+    }}
+    .stButton > button:hover {{
+        background-color: {t["primary"]} !important;
+        color: #ffffff !important;
+        border-color: {t["accent"]} !important;
+        box-shadow: 0 0 12px {t["primary"]};
+    }}
 
-st.divider()
-st.markdown("#### Theme Palette Showcase")
+    .stTextInput > div > div > input, 
+    .stSelectbox > div > div,
+    .stChatInput textarea {{
+        background-color: {t["secondary_bg"]} !important;
+        color: {t["text"]} !important;
+        border: 1.5px solid {t["border"]} !important;
+        border-radius: 8px !important;
+    }}
+    .stChatInput textarea:focus {{
+        border-color: {t["primary"]} !important;
+        box-shadow: 0 0 8px {t["primary"]} !important;
+    }}
 
-cols = st.columns(len(THEMES))
-for col, (name, palette) in zip(cols, THEMES.items()):
-    with col:
-        is_active = (name == st.session_state.current_theme)
-        st.markdown(
-            f"""
-            <div style="
-                border: 2px solid {palette['primary'] if is_active else palette['border']};
-                border-radius: 10px;
-                padding: 14px;
-                background-color: {palette['secondary_bg']};
-                text-align: center;
-                box-shadow: {'0 0 15px ' + palette['primary'] if is_active else 'none'};
-                margin-bottom: 10px;
-            ">
-                <span style="color: {palette['text']}; font-weight: bold; font-size: 14px;">
-                    {'👉 ' if is_active else ''}{name}
-                </span>
-                <div style="display: flex; gap: 8px; justify-content: center; margin-top: 10px;">
-                    <div title="Canvas" style="width: 22px; height: 22px; border-radius: 50%; background: {palette['bg']}; border: 1px solid #666;"></div>
-                    <div title="Surface" style="width: 22px; height: 22px; border-radius: 50%; background: {palette['secondary_bg']}; border: 1px solid #666;"></div>
-                    <div title="Primary Accent" style="width: 22px; height: 22px; border-radius: 50%; background: {palette['primary']};"></div>
-                    <div title="Highlight" style="width: 22px; height: 22px; border-radius: 50%; background: {palette['accent']};"></div>
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+    div[data-testid="stChatMessage"] {{
+        background-color: {t["secondary_bg"]} !important;
+        border: 1px solid {t["border"]} !important;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }}
 
-st.divider()
-st.markdown("### ℹ️ Architecture Specs")
-st.text("Frontend: Streamlit Multi-Page Framework")
-st.text("Orchestration: Groq Cloud LPU (Function Calling Engine)")
-st.text("Persistence: SQLite Structured Local Storage")
+    div[data-testid="stDataFrame"] {{
+        border: 1.5px solid {t["border"]} !important;
+        border-radius: 10px;
+        overflow: hidden;
+    }}
+
+    .stProgress > div > div > div > div {{
+        background-color: {t["primary"]} !important;
+    }}
+    button[data-baseweb="tab"][aria-selected="true"] {{
+        border-bottom-color: {t["primary"]} !important;
+        color: {t["primary"]} !important;
+    }}
+    </style>
+    """
+    st.markdown(css, unsafe_allow_html=True)
+    
