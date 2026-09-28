@@ -3,21 +3,24 @@ import json
 from dotenv import load_dotenv
 from groq import Groq
 from services import add_stock, reduce_stock, query_stock, TOOL_REGISTRY
+from database import record_zero_knowledge_billing, get_connection
 
 load_dotenv()
+
+MODEL_NAME = "openai/gpt-oss-20b"
 
 GROQ_TOOLS = [
     {
         "type": "function",
         "function": {
             "name": "add_stock",
-            "description": "Add incoming stock to inventory or register a new product.",
+            "description": "Add stock or register items into warehouse inventory.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_name": {"type": "string", "description": "The title of the product/item."},
-                    "quantity": {"type": "integer", "description": "Number of units to add."},
-                    "unit_price": {"type": "number", "description": "Price per unit (optional)."}
+                    "product_name": {"type": "string"},
+                    "quantity": {"type": "integer"},
+                    "unit_price": {"type": "number"}
                 },
                 "required": ["product_name", "quantity"]
             }
@@ -27,12 +30,12 @@ GROQ_TOOLS = [
         "type": "function",
         "function": {
             "name": "reduce_stock",
-            "description": "Record a sale, dispatch, or write-off of existing stock.",
+            "description": "Log sale or dispatch of items from inventory.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_name": {"type": "string", "description": "Name of the product sold."},
-                    "quantity": {"type": "integer", "description": "Number of units sold."}
+                    "product_name": {"type": "string"},
+                    "quantity": {"type": "integer"}
                 },
                 "required": ["product_name", "quantity"]
             }
@@ -42,11 +45,14 @@ GROQ_TOOLS = [
         "type": "function",
         "function": {
             "name": "query_stock",
-            "description": "Inspect stock levels for a specific product or view all products.",
+            "description": "View current stock levels in the warehouse catalog. If product_name is omitted, null, or empty string, returns all items.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_name": {"type": "string", "description": "Product name to look up. Leave empty to see all."}
+                    "product_name": {
+                        "type": ["string", "null"],
+                        "description": "Name of the specific product to search for, or null/empty string to view all products."
+                    }
                 }
             }
         }
@@ -57,57 +63,95 @@ class InventoryAgent:
     def __init__(self):
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key:
-            raise ValueError("GROQ_API_KEY is not set in your .env file.")
+            raise ValueError("GROQ_API_KEY environment variable is not set.")
         self.client = Groq(api_key=api_key)
-        self.messages = [
-            {
-                "role": "system",
-                "content": (
-                    "You are an expert autonomous inventory manager. You track physical stock and ledger logs "
-                    "by calling tools. Always use add_stock, reduce_stock, or query_stock when the user describes "
-                    "inventory operations. Keep confirmations concise."
-                )
-            }
+
+    def send_user_message(self, user_text: str, client_id: int = 1, user_id: int = 1) -> dict:
+        """
+        Executes user prompt, scopes tool calling to tenant client_id,
+        and logs zero-knowledge telemetry into the billing ledger.
+        """
+        # Pre-check: Ensure client has enough wallet balance
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT wallet_balance, rate_per_query FROM clients WHERE id = ?", (client_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            raise ValueError(f"Client #{client_id} does not exist.")
+
+        wallet_bal, rate = row
+        if wallet_bal < rate:
+            raise ValueError(f"Insufficient funds (${wallet_bal:.2f}). Required rate: ${rate:.2f}/query. Please top up your wallet.")
+
+        messages = [
+            {"role": "system", "content": "You are an autonomous stock manager. Use tools to query or update warehouse stock accurately."},
+            {"role": "user", "content": user_text}
         ]
 
-    def send_user_message(self, user_text: str) -> str:
-        self.messages.append({"role": "user", "content": user_text})
-
         response = self.client.chat.completions.create(
-            model="openai/gpt-oss-20b",
-            messages=self.messages,
+            model=MODEL_NAME,
+            messages=messages,
             tools=GROQ_TOOLS,
             tool_choice="auto"
         )
 
-        response_message = response.choices[0].message
-        tool_calls = response_message.tool_calls
+        p_tokens = response.usage.prompt_tokens if response.usage else 0
+        c_tokens = response.usage.completion_tokens if response.usage else 0
+        response_msg = response.choices[0].message
+        final_reply = ""
 
-        if tool_calls:
-            self.messages.append(response_message)
+        if response_msg.tool_calls:
+            messages.append(response_msg)
             tool_outputs = []
 
-            for tool_call in tool_calls:
-                func_name = tool_call.function.name
-                func_args = json.loads(tool_call.function.arguments)
+            for call in response_msg.tool_calls:
+                func_name = call.function.name
+                func_args = json.loads(call.function.arguments or "{}")
+
+                # Sanitize nullable string fields
+                if func_name == "query_stock":
+                    if func_args.get("product_name") is None:
+                        func_args["product_name"] = ""
+
+                # Inject tenant scope
+                func_args["client_id"] = client_id
 
                 if func_name in TOOL_REGISTRY:
                     result = TOOL_REGISTRY[func_name](**func_args)
                     tool_outputs.append(result)
-
-                    self.messages.append({
-                        "tool_call_id": tool_call.id,
+                    messages.append({
+                        "tool_call_id": call.id,
                         "role": "tool",
                         "name": func_name,
                         "content": result
                     })
 
-            second_response = self.client.chat.completions.create(
-                model="openai/gpt-oss-20b",
-                messages=self.messages
+            second_call = self.client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages
             )
-            return second_response.choices[0].message.content or "\n".join(tool_outputs)
+            if second_call.usage:
+                p_tokens += second_call.usage.prompt_tokens
+                c_tokens += second_call.usage.completion_tokens
 
-        reply = response_message.content or "Done."
-        self.messages.append({"role": "assistant", "content": reply})
-        return reply
+            final_reply = second_call.choices[0].message.content or "\n".join(tool_outputs)
+        else:
+            final_reply = response_msg.content or "Action completed."
+
+        cost_charged, new_balance = record_zero_knowledge_billing(
+            client_id=client_id,
+            user_id=user_id,
+            model=MODEL_NAME,
+            p_tokens=p_tokens,
+            c_tokens=c_tokens
+        )
+
+        return {
+            "reply": final_reply,
+            "cost_charged": cost_charged,
+            "new_balance": new_balance,
+            "tokens": p_tokens + c_tokens
+        }
+        

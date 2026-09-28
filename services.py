@@ -1,96 +1,96 @@
-from database import get_db_connection
+import sqlite3
+from database import get_connection
 
-def add_stock(product_name: str, quantity: int, unit_price: float = 0.0) -> str:
-    """Add incoming stock to inventory or register a new product.
-    
-    Args:
-        product_name: The descriptive title of the item/product.
-        quantity: The positive number of units received.
-        unit_price: Price per unit in dollars (optional, default 0.0).
-    """
-    clean_name = product_name.strip().title()
-    if quantity <= 0:
-        return "Failed: Quantity to add must be greater than zero."
+def add_stock(product_name: str, quantity: int, unit_price: float = 0.0, client_id: int = 1) -> str:
+    """Adds stock or registers an item scoped strictly to client_id."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    clean_name = product_name.strip()
 
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT quantity, unit_price FROM products WHERE name = ?", (clean_name,))
-        row = cursor.fetchone()
+    cursor.execute(
+        "SELECT id, stock, price FROM products WHERE client_id = ? AND LOWER(name) = LOWER(?)",
+        (client_id, clean_name)
+    )
+    row = cursor.fetchone()
 
-        if row:
-            new_qty = row[0] + quantity
-            price = unit_price if unit_price > 0 else row[1]
-            cursor.execute("UPDATE products SET quantity = ?, unit_price = ? WHERE name = ?", (new_qty, price, clean_name))
-        else:
-            new_qty = quantity
-            cursor.execute("INSERT INTO products (name, quantity, unit_price) VALUES (?, ?, ?)", (clean_name, quantity, unit_price))
-
+    if row:
+        p_id, cur_stock, cur_price = row
+        new_stock = cur_stock + quantity
+        new_price = unit_price if unit_price > 0 else cur_price
+        cursor.execute("UPDATE products SET stock = ?, price = ? WHERE id = ?", (new_stock, new_price, p_id))
+    else:
         cursor.execute(
-            "INSERT INTO transactions (product_name, change_qty, action) VALUES (?, ?, 'RESTOCK')",
-            (clean_name, quantity)
+            "INSERT INTO products (client_id, name, stock, price) VALUES (?, ?, ?, ?)",
+            (client_id, clean_name, quantity, unit_price)
         )
-        conn.commit()
-    return f"Confirmed: Added {quantity} units to '{clean_name}'. Updated total stock: {new_qty}."
 
-def reduce_stock(product_name: str, quantity: int) -> str:
-    """Record a sale, dispatch, or write-off of existing stock.
-    
-    Args:
-        product_name: The name of the product sold or dispatched.
-        quantity: The positive number of units sold.
-    """
-    clean_name = product_name.strip().title()
-    if quantity <= 0:
-        return "Failed: Quantity to sell must be greater than zero."
+    cursor.execute(
+        "INSERT INTO transactions (client_id, product_name, quantity_change, action_type) VALUES (?, ?, ?, 'RESTOCK')",
+        (client_id, clean_name, quantity)
+    )
+    conn.commit()
+    conn.close()
+    return f"Successfully added {quantity} units of '{clean_name}'."
 
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT quantity FROM products WHERE name = ?", (clean_name,))
-        row = cursor.fetchone()
+def reduce_stock(product_name: str, quantity: int, client_id: int = 1) -> str:
+    """Deducts stock scoped strictly to client_id."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    clean_name = product_name.strip()
 
-        if not row:
-            return f"Failed: Item '{clean_name}' does not exist in inventory records."
-        
-        current_stock = row[0]
-        if current_stock < quantity:
-            return f"Failed: Insufficient stock. Only {current_stock} units of '{clean_name}' available, but requested {quantity}."
+    cursor.execute(
+        "SELECT id, stock FROM products WHERE client_id = ? AND LOWER(name) = LOWER(?)",
+        (client_id, clean_name)
+    )
+    row = cursor.fetchone()
 
-        new_qty = current_stock - quantity
-        cursor.execute("UPDATE products SET quantity = ? WHERE name = ?", (new_qty, clean_name))
+    if not row:
+        conn.close()
+        return f"Error: Product '{clean_name}' does not exist in your catalog."
+
+    p_id, cur_stock = row
+    if cur_stock < quantity:
+        conn.close()
+        return f"Declined: Insufficient stock. You only have {cur_stock} units of '{clean_name}' available."
+
+    new_stock = cur_stock - quantity
+    cursor.execute("UPDATE products SET stock = ? WHERE id = ?", (new_stock, p_id))
+    cursor.execute(
+        "INSERT INTO transactions (client_id, product_name, quantity_change, action_type) VALUES (?, ?, ?, 'SALE')",
+        (client_id, clean_name, -quantity)
+    )
+    conn.commit()
+    conn.close()
+    return f"Successfully recorded sale of {quantity} units of '{clean_name}'."
+
+def query_stock(product_name: str = "", client_id: int = 1) -> str:
+    """Queries stock catalog strictly for client_id. Accepts empty string or None."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    name_clean = (product_name or "").strip()
+
+    if name_clean:
         cursor.execute(
-            "INSERT INTO transactions (product_name, change_qty, action) VALUES (?, ?, 'SALE')",
-            (clean_name, -quantity)
+            "SELECT name, stock, price FROM products WHERE client_id = ? AND LOWER(name) = LOWER(?)",
+            (client_id, name_clean)
         )
-        conn.commit()
-    return f"Confirmed: Recorded sale of {quantity} units of '{clean_name}'. Remaining stock: {new_qty}."
-
-def query_stock(product_name: str = "") -> str:
-    """Inspect current inventory levels for a specific product or view all products.
-    
-    Args:
-        product_name: Specific product to look up. Leave empty to retrieve all stock.
-    """
-    clean_name = product_name.strip().title()
-    with get_db_connection() as conn:
-        cursor = conn.cursor()
-        if clean_name:
-            cursor.execute("SELECT name, quantity, unit_price FROM products WHERE name = ?", (clean_name,))
-            row = cursor.fetchone()
-            if row:
-                return f"Product: {row[0]} | Current Stock: {row[1]} units | Price: ${row[2]:.2f}"
-            return f"No records found for product '{clean_name}'."
-        
-        cursor.execute("SELECT name, quantity, unit_price FROM products ORDER BY name ASC")
         rows = cursor.fetchall()
-        if not rows:
-            return "Inventory is currently empty."
-        
-        items = [f"• {r[0]}: {r[1]} units (${r[2]:.2f})" for r in rows]
-        return "Current Stock Levels:\n" + "\n".join(items)
+    else:
+        cursor.execute(
+            "SELECT name, stock, price FROM products WHERE client_id = ? ORDER BY name ASC",
+            (client_id,)
+        )
+        rows = cursor.fetchall()
 
-# Explicit mapping of tool names for execution
+    conn.close()
+    if not rows:
+        return "No inventory items found matching your catalog query."
+
+    return "\n".join([f"• {r[0]}: {r[1]} units (Unit Price: ${r[2]:.2f})" for r in rows])
+
 TOOL_REGISTRY = {
     "add_stock": add_stock,
     "reduce_stock": reduce_stock,
-    "query_stock": query_stock,
+    "query_stock": query_stock
 }
