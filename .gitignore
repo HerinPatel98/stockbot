@@ -1,0 +1,13 @@
+# Environment & Secrets (NEVER push API keys)
+.env
+*.env
+
+# SQLite local database & cache
+inventory.db
+*.sqlite3
+
+# Python bytecode & environments
+__pycache__/
+venv/
+env/
+.venv/
