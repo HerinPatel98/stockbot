@@ -29,7 +29,22 @@ st.subheader("Palette Color Samples")
 t = THEMES[selected_theme]
 
 c1, c2, c3, c4 = st.columns(4)
-c1.color_picker("Primary Color", t["primary"], disabled=True)
-c2.color_picker("Accent Color", t["accent"], disabled=True)
-c3.color_picker("Background Canvas", t["bg"], disabled=True)
-c4.color_picker("Card Background", t["secondary_bg"], disabled=True)
+samples = (
+    ("Primary Color", t["primary"]),
+    ("Accent Color", t["accent"]),
+    ("Background Canvas", t["bg"]),
+    ("Card Background", t["secondary_bg"]),
+)
+
+for column, (label, color) in zip((c1, c2, c3, c4), samples):
+    with column:
+        st.markdown(
+            f"""
+            <div style="font-weight: 600; margin-bottom: 8px;">{label}</div>
+            <div style="height: 72px; background-color: {color}; border: 2px solid {t['text']};
+                        outline: 1px solid {t['border']}; outline-offset: 2px; border-radius: 8px;
+                        margin: 4px 2px 10px;"></div>
+            <code>{color}</code>
+            """,
+            unsafe_allow_html=True,
+        )
