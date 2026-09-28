@@ -1,36 +1,43 @@
 import streamlit as st
 from database import init_db
 from theme_manager import apply_current_theme
-apply_current_theme()
+from auth import require_auth
 
-# Ensure database tables exist
 init_db()
 
 st.set_page_config(
-    page_title="Autonomous Inventory System",
+    page_title="StockBot Enterprise",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-st.title("📦 Autonomous Inventory Management System")
-st.markdown("### Powered by LLM Tool Calling & Deterministic Ledger")
+apply_current_theme()
+
+# Gate access for clients
+user = require_auth(allowed_roles=["client_admin", "client_staff"])
+
+st.title(f"📦 Welcome, {user['company_name']}")
+st.markdown("### Autonomous Inventory Management System")
 
 st.write(
     """
-    Welcome to the Autonomous Inventory Management System. This project bridges human natural language 
-    with a deterministic SQL database through structured AI tool calling.
+    Your warehouse instance is isolated and protected with zero-knowledge billing telemetry.
     
-    Use the sidebar on the left to navigate:
-    - **📊 Dashboard:** Real-time stock levels, portfolio valuation, stock status alerts, and audit logs.
-    - **💬 AI Assistant:** Conversational chat interface to restock, sell, and query items via natural speech.
+    Use the navigation menu on the left to get started:
+    - **📊 Dashboard:** Real-time stock levels, catalog valuations, and audit logs.
+    - **💬 AI Assistant:** Conversational agent to restock, sell, and query items via natural speech.
+    - **⚙️ Settings:** Personalize visual design themes.
+    - **💳 Usage & Billing:** Check your dummy dollar balance and top up prepaid queries.
     """
 )
 
 st.divider()
-
-col1, col2 = st.columns(2)
-with col1:
-    st.info("### 📊 Want to view reports?\nNavigate to the **Dashboard** page to analyze current stock and ledger records.")
-with col2:
-    st.success("### 💬 Need to record transactions?\nOpen the **AI Assistant** page to interact with the LLM bot.")
+c1, c2, c3 = st.columns(3)
+with c1:
+    st.info(f"**🏢 Tenant Account**\n\n{user['company_name']} (ID: {user['client_id']})")
+with c2:
+    st.success(f"**💰 Active Wallet**\n\n${user['wallet_balance']:.2f} Dummy USD")
+with c3:
+    st.warning("**🔒 Security Status**\n\nZero-Knowledge Telemetry Active")
+    
