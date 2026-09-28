@@ -1,55 +1,79 @@
 # 📦 Autonomous Conversational AI Inventory Management System (StockBot)
 
-An enterprise-grade, conversational inventory management platform that bridges natural language human commands with an ACID-compliant relational SQL ledger via autonomous LLM tool calling. 
+An enterprise-grade, conversational multi-tenant inventory management platform that bridges natural language human commands with an ACID-compliant relational SQL ledger via autonomous LLM tool calling. 
 
-Engineered with a decoupled architecture (**Separation of Concerns**), the system provides deterministic stock accounting, multi-page data analytics, customizable theme palettes, multi-tenant client isolation, and zero-knowledge per-query billing telemetry.
+Engineered with a decoupled architecture (**Separation of Concerns**), the system provides deterministic stock accounting, dynamic fuzzy SKU matching, overselling prevention, session-persisted role-based access control (RBAC), multi-tenant isolation, and zero-knowledge per-query billing telemetry with prepaid dummy-dollar wallets.
 
 ---
 
-## 🌟 Key Highlights
+## 🌟 Key Highlights & Engineering Features
 
-- **Deterministic Tool Calling:** Uses native function calling (`add_stock`, `reduce_stock`, `query_stock`) rather than raw text or vulnerable SQL generation. Prevents hallucinations and SQL injection risks.
-- **Ultra-Low Latency Inference:** Powered by Groq LPUs (`openai/gpt-oss-20b`) delivering responses in under 400ms with high uptime.
-- **Auditable Ledger Engine:** Every stock movement records an immutable entry in an activity ledger with timestamps, delta shifts, and classification categories (`RESTOCK` vs. `SALE`).
-- **Interactive Multi-Page Frontend:** Built on Streamlit's multi-page architecture with separate views for high-level warehouse metrics, real-time conversational agents, dynamic theming, and an administrative billing portal.
-- **Dynamic Theming Engine:** Instant theme switching across four high-contrast palettes (*Cyberpunk Neon*, *Terminal Amber*, *Nordic Glacier*, *Royal Amethyst*) via dynamic session-state CSS injection.
-- **Zero-Knowledge Multi-Tenancy:** Complete separation between the **Data Plane** (confidential client inventory stored locally) and the **Control Plane** (pure numerical billing telemetry logging tokens and costs with zero business data leakage).
+- **Autonomous Deterministic Tool Calling:** Uses native function calling (`add_stock`, `reduce_stock`, `query_stock`, `delete_stock`) rather than raw text generation or vulnerable Text-to-SQL.
+- **Fuzzy Entity Resolution & Suffix Normalization:** Built-in canonical matcher using `difflib` and plural/suffix stemming (`"usb-c docks"` $\rightarrow$ `"USB-C Dock"`). Completely eliminates accidental SKU duplication caused by typos or natural pluralization.
+- **Dual-Mode Warehouse UI:**
+  - **Guided Operations Bar:** Dropdown selection of active catalog items with hard inventory-clamped limits (`max_value = available_stock`) preventing human overselling and disabling out-of-stock sales.
+  - **Conversational Chatbot:** Freeform conversational assistant with real-time status spinners, token telemetry tags, and intent-aware routing.
+- **Auditable Lifecycle & SKU Decommissioning:** Every stock movement is logged to an immutable transaction ledger (`RESTOCK`, `SALE`). Destructive catalog deletions require explicit confirmation, calculate written-off asset valuations, and record permanent `DECOMMISSION` audit events.
+- **Ultra-Low Latency Inference:** Powered by Groq LPUs (`openai/gpt-oss-20b`) delivering function calls and contextual summaries in under 400ms.
+- **Zero-Knowledge Multi-Tenancy & Prepaid Wallets:**
+  - **Data Plane (Isolated):** Confidential warehouse catalogs, unit margins, and inventory volumes remain strictly isolated to the tenant (`client_id`).
+  - **Control Plane (Zero-Knowledge):** Platform administrators inspect only numerical metering logs (tokens, deducted cost, remaining balance, execution timestamp) with zero leakage of client prompts or product data.
+  - **Self-Service Top-Ups:** Integrated sandbox recharge portal for clients to deposit dummy USD into their prepaid balance.
+- **Multi-Port Enterprise Deployment:**
+  - **Client Application (`app.py` on Port `8501`):** Warehouse dashboard, conversational assistant, theme customizer, and personal usage billing.
+  - **Platform Admin Center (`admin_app.py` on Port `8502`):** Central fleet telemetry, macro revenue analytics, rate adjustment, and tenant provisioning.
+- **Session-Persisted RBAC (`auth.py`):** Secure SHA-256 credential hashing backed by URL-query-parameter session continuity, preventing unexpected logouts on browser reloads or form reruns.
+- **Dynamic Theming Engine:** High-contrast palettes (*Cyberpunk Neon*, *Terminal Amber*, *Deep Arctic Glacier*, *Royal Amethyst*) with WCAG-compliant card elevation and neon border accents.
 
 ---
 
 ## 🏗️ System Architecture & Workflow
 
 ```
-                             +---------------------------------+
-                             |    Streamlit Web Interface      |
-                             |  (Dashboard / Chatbot / Admin)  |
-                             +---------------+-----------------+
-                                             |
-                                   User Natural Prompt
-                                             |
-                                             v
-                             +---------------------------------+
-                             |        AI Service Layer         |
-                             |    (Groq LPU Engine: GPT-OSS)   |
-                             +---------------+-----------------+
-                                             |
-                       Evaluates & Emits Structured Tool Call
-                                             |
-                                             v
-                             +---------------------------------+
-                             |       Business Logic Layer      |
-                             |  (services.py / Tool Registry)  |
-                             +---------------+-----------------+
-                                             |
-                     Executes Parameterized & Isolated SQL Transactions
-                                             |
-                                             v
-                             +---------------------------------+
-                             |         Database Layer          |
-                             |     (SQLite: inventory.db)      |
-                             |  * products      * transactions |
-                             |  * clients       * telemetry    |
-                             +---------------------------------+
+                             +--------------------------------------------------+
+                             |              Client Web Portal                   |
+                             |         (Streamlit App - Port 8501)              |
+                             |    Dashboard / Guided UI / Chat / Billing        |
+                             +------------------------+-------------------------+
+                                                      |
+                                            Natural User Command
+                                                      |
+                                                      v
+                             +--------------------------------------------------+
+                             |           AI Orchestration Layer                 |
+                             |         (Groq LPU Engine: GPT-OSS)               |
+                             |   Tool Schema Validation & Anti-Hallucination    |
+                             +------------------------+-------------------------+
+                                                      |
+                                       Emits Structured Tool Call
+                                                      |
+                                                      v
+                             +--------------------------------------------------+
+                             |             Business Logic Layer                 |
+                             |         (services.py / Tool Registry)            |
+                             |     * Fuzzy SKU Normalizer (difflib/stemming)    |
+                             |     * Oversell Guardrails & Decommissioning      |
+                             +------------------------+-------------------------+
+                                                      |
+                             Atomic ACID Parameterized Relational Transactions
+                                                      |
+                                                      v
+                             +--------------------------------------------------+
+                             |               Database Layer                     |
+                             |           (SQLite: inventory.db)                 |
+                             |   * clients             * products (scoped)      |
+                             |   * users (RBAC)        * transactions (ledger)  |
+                             |   * wallet_topups       * api_billing_telemetry  |
+                             +------------------------+-------------------------+
+                                                      ^
+                                                      |
+                                       Reads Only Numeric Telemetry
+                                                      |
+                             +------------------------+-------------------------+
+                             |       Platform Administration Portal             |
+                             |       (Streamlit Admin App - Port 8502)          |
+                             |    Macro Revenue / Fleet Wallets / Provisioning  |
+                             +--------------------------------------------------+
 ```
 
 ---
@@ -58,31 +82,33 @@ Engineered with a decoupled architecture (**Separation of Concerns**), the syste
 
 ```text
 stockbot/
-├── .env                              # Environment variables (API keys, ports)
-├── requirements.txt                  # Python dependencies
-├── database.py                       # SQLite schema, data models & telemetry helpers
-├── services.py                       # Business logic tools (add_stock, reduce_stock, query_stock)
-├── ai_service.py                     # Groq LLM tool calling orchestration & meter tracking
-├── theme_manager.py                  # Dynamic CSS injection & theme definitions
-├── test_groq.py                      # Diagnostic script for API & model connectivity
-├── app.py                            # Main application entry point & portal router
+├── .env                              # Groq API key configuration
+├── requirements.txt                  # Python package dependencies
+├── database.py                       # SQLite schema, multi-tenant models, & billing telemetry
+├── auth.py                           # Session gatekeeper, SHA-256 auth, & URL query persistence
+├── services.py                       # Business logic (fuzzy resolution, add/reduce/delete stock)
+├── ai_service.py                     # Groq LLM tool orchestration & anti-hallucination caller
+├── theme_manager.py                  # Dynamic CSS injection & contrast palettes
+├── app.py                            # Client application entry point (Port 8501)
+├── admin_app.py                      # Platform Admin Control Center (Port 8502)
 └── pages/
-    ├── 1_📊_Dashboard.py             # Live inventory tables, KPIs & audit logs
-    ├── 2_💬_AI_Assistant.py          # Conversational chatbot interface with loading status
-    ├── 3_⚙️_Settings.py              # Visual theme selector & configuration
-    └── 4_💳_Admin_Billing.py         # Multi-client telemetry, rate manager & usage audit
+    ├── 1_📊_Dashboard.py             # Tenant inventory KPIs, stock table, & SKU decommissioner
+    ├── 2_💬_AI_Assistant.py          # Chatbot agent + Guided Stock Operations query builder
+    ├── 3_⚙️_Settings.py              # Visual color palette selector
+    └── 4_💳_Usage_and_Billing.py     # Prepaid dummy dollar wallet, top-up sandbox, & query logs
 ```
 
 ---
 
 ## ⚙️ Tech Stack & Prerequisites
 
-- **Language:** Python 3.10 or higher
-- **Frontend Framework:** Streamlit (Multi-Page Architecture)
-- **AI Orchestration & LLM:** Groq Cloud SDK (`openai/gpt-oss-20b`)
-- **Database & Persistence:** SQLite3 (Embedded ACID Relational Engine)
-- **Data Manipulation:** Pandas
-- **Configuration & Environment:** `python-dotenv`
+- **Language:** Python 3.10+
+- **Application Framework:** Streamlit (Multi-Page Architecture)
+- **AI Inference Engine:** Groq Cloud SDK (`openai/gpt-oss-20b`)
+- **Database Engine:** SQLite3 (Embedded ACID Relational Engine with Foreign Key Enforcement)
+- **Data Analysis & Processing:** Pandas
+- **String Distance & Matching:** Python Standard Library (`difflib`, `re`)
+- **Environment Management:** `python-dotenv`
 
 ---
 
@@ -109,101 +135,94 @@ source venv/bin/activate
 
 ### 3. Install Dependencies
 
-Ensure your `requirements.txt` contains:
-
-```text
-streamlit>=1.35.0
-groq>=0.9.0
-python-dotenv>=1.0.1
-pandas>=2.2.0
-requests>=2.31.0
-```
-
-Install packages:
-
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 4. Configure Environment Variables
 
-Create a `.env` file in the root directory:
+Create a `.env` file in the project root:
 
 ```env
-GROQ_API_KEY=gsk_your_actual_groq_api_key_here
+GROQ_API_KEY=gsk_your_groq_api_key_here
+```
+
+### 5. Initialize the Multi-Tenant Database
+
+```bash
+python -c "import database; database.init_db(); print('Database schema initialized!')"
 ```
 
 ---
 
-## 🧪 Testing & Diagnostics
+## 🖥️ Running the Applications (Concurrent Multi-Port)
 
-### Run API & Model Connectivity Test
-Verify that your Groq API key is valid and inspect available models on your account:
+To simulate a real enterprise production deployment, run the **Client Portal** and the **Platform Administration Center** simultaneously in two separate terminals:
 
-```bash
-python test_groq.py
-```
-
-### Initialize Database Schema
-Pre-populate the SQLite tables (`products`, `transactions`, `clients`, `api_usage_logs`) with baseline demo data:
-
-```bash
-python -c "from database import init_db; init_db()"
-```
-
-### Launch the Application
-Run the Streamlit application:
-
+### Terminal 1: Client Application (Port 8501)
 ```bash
 streamlit run app.py
 ```
+- **Access URL:** `http://localhost:8501`
 
-Open your browser at `http://localhost:8501`.
+### Terminal 2: Administration Portal (Port 8502)
+```bash
+streamlit run admin_app.py --server.port 8502
+```
+- **Access URL:** `http://localhost:8502`
+
+*(Tip: Open the Admin portal in an Incognito window to maintain concurrent, isolated browser sessions.)*
 
 ---
 
-## 💡 Conversational Demo Test Suite
+## 🔑 Demo Access Credentials
 
-Test the application workflow by passing these structured prompts on the **💬 AI Assistant** page:
+| Organization / Role | Username | Password | Default Wallet | Access Port |
+| :--- | :--- | :--- | :--- | :--- |
+| **Acme Corp (Client Admin)** | `acme_admin` | `pass123` | `$25.00` Dummy USD | `http://localhost:8501` |
+| **Stark Logistics (Client Admin)** | `stark_admin` | `pass123` | `$50.00` Dummy USD | `http://localhost:8501` |
+| **Super Admin (Platform Owner)** | `admin` | `admin123` | N/A (Fleet Master) | `http://localhost:8502` |
 
-| Test Case | Sample Prompt | Expected Action |
+---
+
+## 💡 Operational Test Suite & Guardrail Verification
+
+Test the application against these scenarios to demonstrate system robustness:
+
+| Category | Action / Prompt | Expected System Behavior |
 | :--- | :--- | :--- |
-| **Catalog Query** | `Show me the complete inventory list.` | Calls `query_stock`, returns formatted list of current items and prices. |
-| **Restock / Insert** | `We received 50 Mechanical Keyboards at $45 each.` | Calls `add_stock`, updates stock or registers new SKU, logs `RESTOCK` in ledger. |
-| **Record Sale** | `Sold 5 Mechanical Keyboards to an office.` | Calls `reduce_stock`, decrements stock by 5, logs `SALE` in ledger. |
-| **Safety Guardrail** | `Sell 500 Mechanical Keyboards right now.` | Rejects operation due to insufficient inventory without modifying the database. |
-| **Catalog Query** | `Do we have any Gaming Monitors?` | Handles missing SKU checks and informs user politely. |
+| **Fuzzy Resolution** | `Add 5 usb-c docks` | Resolves plural/case mismatch to existing `'USB-C Dock'`, updates stock without creating a duplicate SKU, and reports resolution trace. |
+| **New SKU Protection** | `Add 10 Gaming Mice` | Halts insertion with a prompt guide because `'Gaming Mice'` does not exist in the catalog and no creation intent was declared. |
+| **Explicit SKU Registration** | `Add new SKU 'Gaming Mouse' with 15 units at $35 each` | Detects `is_new_sku` authorization, registers the new catalog entry, and logs `RESTOCK`. |
+| **Overselling Guardrail** | Guided Operations $\rightarrow$ `Record Sale (-)` | Dynamic selector clamps quantity to the exact available stock and prevents selecting $> available$. Out-of-stock items disable the execution button. |
+| **Safe Decommissioning** | Dashboard $\rightarrow$ Decommission SKU | Displays valuation loss write-off warning (`Units × Unit Price`) and disables deletion until an explicit confirmation checkbox is toggled. |
+| **Zero-Knowledge Billing** | Any Assistant Query | Deducts tenant query rate (e.g. `$0.05`), updates wallet balance, and writes numerical telemetry (`tokens`, `cost`, `timestamp`) to the audit ledger without logging prompt or catalog text. |
+| **Prepaid Top-Up** | `4_💳_Usage_and_Billing` | Client selects sandbox recharge tier (e.g. `+$25.00`), clicks deposit, and updates their wallet balance. |
 
 ---
 
-## 🔒 Commercial Architecture: Multi-Tenancy & Zero-Knowledge Billing
+## 🔒 Security Architecture: Zero-Knowledge Multi-Tenancy
 
-For enterprise deployment, this project demonstrates **Zero-Knowledge Multi-Tenancy**:
-
-1. **Client Isolation:**
-   Every inventory transaction is strictly scoped with a tenant constraint (`WHERE client_id = ?`). Clients only interact with their own catalog.
-2. **Zero-Knowledge Telemetry:**
-   The admin portal records **only numerical usage metadata**:
-   - `client_id`
-   - `model_used`
-   - `prompt_tokens` & `completion_tokens`
-   - `cost_charged` (e.g., $0.05 per query)
-   - `timestamp`
-3. **Data Sovereignty:**
-   Shopkeepers' actual products, pricing margins, inventory volumes, and prompt text remain isolated in their data layer and are **never** logged to the administrative billing telemetry table.
+```
++------------------------------------+       +------------------------------------+
+|         TENANT DATA PLANE          |       |        ADMIN CONTROL PLANE         |
+|      (Client-Isolated Storage)     |       |      (Zero-Knowledge Telemetry)    |
++------------------------------------+       +------------------------------------+
+| [products]                         |       | [api_billing_telemetry]            |
+|  - id, client_id, name, stock,     |       |  - id, client_id, user_id          |
+|    price                           |       |  - model_used                      |
+|                                    |       |  - prompt_tokens, completion_tokens|
+| [transactions]                     |       |  - cost_deducted, balance_after    |
+|  - id, client_id, product_name,    |       |  - timestamp                       |
+|    quantity_change, action_type    |       |                                    |
++------------------------------------+       +------------------------------------+
+                |                                              |
+                +----------------------+-----------------------+
+                                       |
+                   🛡️ ZERO BUSINESS LEAKAGE GUARANTEE:
+        Platform admins can audit revenue, usage spikes, and model
+        token throughput without accessing confidential inventory catalogs,
+        product names, margins, or proprietary conversational prompts.
+```
 
 ---
-
-## 🎓 Viva Voce Defense Guide (Key Questions & Answers)
-
-- **Q: Which database did you use to store data, and why?**  
-  *A:* We use **SQLite**, an embedded, serverless, relational SQL database management system. All data is persisted in an ACID-compliant file (`inventory.db`) with normalized tables (`products`, `transactions`, `clients`, `api_usage_logs`). Relational integrity guarantees that stock level updates and ledger entries commit atomically.
-
-- **Q: Why use Function Calling instead of Text-to-SQL?**  
-  *A:* Direct SQL generation poses critical security risks (SQL injection) and calculation errors (hallucinated schemas). Using **Function Calling** binds the LLM to strict, pre-validated Python functions (`add_stock`, `reduce_stock`, `query_stock`) with parameterized queries, guaranteeing deterministic database integrity.
-
-- **Q: How does the system handle multi-client deployments without seeing private shopkeeper data?**  
-  *A:* We enforce a strict separation between the **Data Plane** and the **Telemetry Plane**. The shopkeeper's inventory and transactions reside in their isolated local database. The administrative backend only receives non-sensitive numeric telemetry (`client_id`, `tokens_consumed`, `cost_charged`), ensuring zero business data leakage.
-
-- **Q: How do you handle inference latency and API errors?**  
-  *A:* We route requests through Groq LPUs (`openai/gpt-oss-20b`) for sub-second function calling, and protect frontend states with Streamlit session management and error wrappers that prevent unhandled crashes during network interruptions.
