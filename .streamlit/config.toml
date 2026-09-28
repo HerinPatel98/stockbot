@@ -1,0 +1,18 @@
+[theme]
+# Primary accent for active buttons, tabs, sliders, and highlights
+primaryColor = "#38bdf8"
+
+# Canvas background (deep slate navy)
+backgroundColor = "#0f172a"
+
+# Secondary surface for sidebar, metric containers, input boxes
+secondaryBackgroundColor = "#1e293b"
+
+# High-contrast readable text
+textColor = "#f1f5f9"
+
+# Clean sans-serif typography
+font = "sans serif"
+
+[server]
+headless = true
