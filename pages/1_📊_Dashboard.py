@@ -1,17 +1,20 @@
 import streamlit as st
 import pandas as pd
-from database import fetch_products_dataframe, fetch_recent_transactions_dataframe
+from auth import require_auth
+from database import fetch_client_products, fetch_client_transactions
 from theme_manager import apply_current_theme
-apply_current_theme()
 
 st.set_page_config(page_title="Inventory Dashboard", page_icon="📊", layout="wide")
+apply_current_theme()
+
+user = require_auth(allowed_roles=["client_admin", "client_staff"])
+client_id = user["client_id"]
 
 st.title("📊 Inventory Analytics & Ledger")
-st.caption("Live overview of warehouse assets and chronological transaction history.")
+st.caption(f"Live warehouse assets and chronological transaction history for {user['company_name']}.")
 
-# Fetch live data
-df_products = fetch_products_dataframe()
-df_tx = fetch_recent_transactions_dataframe(limit=25)
+df_products = fetch_client_products(client_id)
+df_tx = fetch_client_transactions(client_id, limit=25)
 
 # ----------------- Top KPI Metric Cards -----------------
 col1, col2, col3, col4 = st.columns(4)
@@ -28,7 +31,12 @@ with col2:
 with col3:
     st.metric("Total Inventory Valuation", f"${total_value:,.2f}")
 with col4:
-    st.metric("Low Stock Alerts (<10)", low_stock_count, delta=-low_stock_count if low_stock_count > 0 else 0, delta_color="inverse")
+    st.metric(
+        "Low Stock Alerts (<10)",
+        low_stock_count,
+        delta=-low_stock_count if low_stock_count > 0 else 0,
+        delta_color="inverse"
+    )
 
 st.divider()
 
@@ -38,7 +46,6 @@ tab1, tab2 = st.tabs(["📦 Current Stock Items", "📝 Audit Activity Ledger"])
 with tab1:
     st.subheader("Warehouse Catalog")
     
-    # Quick search filter
     search_query = st.text_input("🔍 Search product name...", "")
     if search_query and not df_products.empty:
         filtered_df = df_products[df_products["Product"].str.contains(search_query, case=False, na=False)]
@@ -51,7 +58,12 @@ with tab1:
         hide_index=True,
         column_config={
             "Product": st.column_config.TextColumn("Product Name"),
-            "Stock": st.column_config.ProgressColumn("Stock Level", format="%d", min_value=0, max_value=max(100, int(df_products["Stock"].max() or 100))),
+            "Stock": st.column_config.ProgressColumn(
+                "Stock Level",
+                format="%d",
+                min_value=0,
+                max_value=max(100, int(df_products["Stock"].max() or 100))
+            ),
             "Price": st.column_config.NumberColumn("Unit Price ($)", format="$%.2f")
         }
     )
@@ -69,6 +81,7 @@ with tab2:
                 "Product": st.column_config.TextColumn("Item"),
                 "Change": st.column_config.NumberColumn("Quantity Shift"),
                 "Type": st.column_config.TextColumn("Action Type"),
-                "Time": st.column_config.DatetimeColumn("Timestamp", format="YYYY-MM-DD HH:mm:ss")
+                "Time": st.column_config.DatetimeColumn("Timestamp")
             }
         )
+        
