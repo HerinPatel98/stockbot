@@ -1,19 +1,51 @@
 import streamlit as st
+import hashlib
 from database import verify_user, get_connection
 
 def require_auth(allowed_roles=None):
     """
     Guarantees page protection.
-    If unauthenticated:
-      1. Injects CSS to hide the sidebar navigation so clients can't bypass login.
-      2. Renders the login card and halts execution immediately.
-    If authenticated:
-      1. Verifies role authorization.
-      2. Renders user badge and sign-out button.
+    Persists session across browser reloads via st.query_params.
     """
     if "auth_user" not in st.session_state:
         st.session_state.auth_user = None
 
+    # Check query_params if session_state is empty (e.g. on F5 or rerun)
+    if st.session_state.auth_user is None:
+        token_user = st.query_params.get("session_user")
+        token_role = st.query_params.get("session_role")
+        token_client = st.query_params.get("session_client")
+        token_uid = st.query_params.get("session_uid")
+
+        if token_user and token_role:
+            # Validate against database
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, client_id, username, role FROM users WHERE username = ? AND role = ?", (token_user, token_role))
+            u_row = cursor.fetchone()
+            
+            if u_row:
+                c_name = "Platform Administrator"
+                bal = 0.0
+                rate = 0.0
+                if u_row[1]:
+                    cursor.execute("SELECT company_name, wallet_balance, rate_per_query FROM clients WHERE id = ?", (u_row[1],))
+                    c_row = cursor.fetchone()
+                    if c_row:
+                        c_name, bal, rate = c_row
+
+                st.session_state.auth_user = {
+                    "user_id": u_row[0],
+                    "client_id": u_row[1],
+                    "username": u_row[2],
+                    "role": u_row[3],
+                    "company_name": c_name,
+                    "wallet_balance": bal,
+                    "rate_per_query": rate
+                }
+            conn.close()
+
+    # Still unauthenticated: Hide nav & show login card
     if st.session_state.auth_user is None:
         st.markdown("""
             <style>
@@ -41,7 +73,7 @@ def render_login_form(allowed_roles=None):
         st.caption("Sign in with your enterprise credentials to access your inventory.")
 
         with st.form("login_form"):
-            username = st.text_input("Username", placeholder="e.g. acme_admin or stark_admin")
+            username = st.text_input("Username", placeholder="e.g. acme_admin or admin")
             password = st.text_input("Password", type="password", placeholder="••••••••")
             submit_btn = st.form_submit_button("Sign In", use_container_width=True)
 
@@ -60,7 +92,14 @@ def render_login_form(allowed_roles=None):
                     st.error(f"⛔ Unauthorized role: '{user_data['role']}'. Access restricted.")
                     return
 
+                # Persist in session_state and query_params
                 st.session_state.auth_user = user_data
+                st.query_params["session_user"] = user_data["username"]
+                st.query_params["session_role"] = user_data["role"]
+                st.query_params["session_uid"] = str(user_data["user_id"])
+                if user_data.get("client_id"):
+                    st.query_params["session_client"] = str(user_data["client_id"])
+
                 st.success("✅ Signed in successfully!")
                 st.rerun()
 
@@ -100,6 +139,9 @@ def render_user_badge():
 
 def logout():
     st.session_state.auth_user = None
+    for key in ["session_user", "session_role", "session_client", "session_uid"]:
+        if key in st.query_params:
+            del st.query_params[key]
     if "chat_messages" in st.session_state:
         st.session_state.chat_messages = []
     st.rerun()
